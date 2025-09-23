@@ -70,7 +70,7 @@ function renderList(list) {
         <div class="contact-phone">${c.phone}</div>
       </div>
       <div class="contact-actions">
-        <button class="secondary small with-icon" data-action="call" data-index="${idx}"><span class="icon">📞</span><span>Call</span></button>
+        <button class="secondary small with-icon" data-action="call" data-index="${idx}"><span class="icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.62 10.79a15.052 15.052 0 006.59 6.59l2.2-2.2a1 1 0 01.97-.26 11.72 11.72 0 003.68.59 1 1 0 011 1V20a1 1 0 01-1 1C11.85 21 3 12.15 3 2a1 1 0 011-1h3.5a1 1 0 011 1 11.72 11.72 0 00.59 3.68 1 1 0 01-.26.97l-2.21 2.21z" fill="#ffffff"/></svg></span><span>Call</span></button>
         <button class="secondary small" data-action="copy" data-index="${idx}">Copy</button>
         ${actionButtons}
       </div>
@@ -83,6 +83,7 @@ function applyFilter(q) {
   const query = (q || '').trim().toLowerCase();
   if (!query) {
     state.filtered = [...state.contacts];
+    state.filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
     renderList(state.filtered);
     return;
   }
@@ -91,6 +92,7 @@ function applyFilter(q) {
     const phone = normalizePhone(c.phone);
     return name.includes(query) || phone.includes(query.replace(/\s/g, ''));
   });
+  state.filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   renderList(state.filtered);
 }
 
@@ -442,7 +444,7 @@ function bindEvents() {
 
 async function reloadFromBackend() {
   if (!supabase) { applyFilter($('#searchInput')?.value || ''); return; }
-  const { data, error } = await supabase.from('contacts').select('*').order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('contacts').select('*').order('name', { ascending: true });
   if (!error && Array.isArray(data)) {
     state.contacts = data.map((r) => ({ name: r.name, phone: r.phone }));
     try { localStorage.setItem(storageKey, JSON.stringify(state.contacts)); } catch (_) {}

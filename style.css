@@ -73,6 +73,16 @@ button.danger { background: var(--danger); color: #fff; border: none; }
 .contact-phone { color: var(--muted); font-size: 13px; }
 .contact-actions { display: flex; gap: 8px; }
 
+/* Green style for Call button */
+.contact-actions [data-action="call"] {
+  background: var(--success);
+  color: #0b0f14;
+  border-color: transparent;
+}
+.contact-actions [data-action="call"]:hover {
+  background: #25b864;
+}
+
 .empty { color: var(--muted); background: #0e1319; border: 1px dashed var(--border); border-radius: 12px; padding: 16px; text-align: center; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; background: #11161d; color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; box-shadow: 0 8px 30px rgba(0,0,0,0.35); }
