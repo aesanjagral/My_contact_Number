@@ -1,0 +1,401 @@
+// Utilities
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+const storageKey = 'smart_contacts_v1';
+const state = {
+  contacts: [],
+  filtered: [],
+  recognition: null,
+  isListening: false,
+  isAdmin: false,
+  editIndex: null,
+};
+// Password removed as per request
+
+function showToast(message) {
+  const toast = $('#toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 1800);
+}
+
+function saveContacts() {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(state.contacts));
+  } catch (_) {
+    // ignore quota errors
+  }
+}
+
+function loadContacts() {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    state.contacts = raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    state.contacts = [];
+  }
+}
+
+function normalizePhone(phone) {
+  return (phone || '').replace(/[^\d+]/g, '');
+}
+
+function renderList(list) {
+  const ul = $('#contactList');
+  const empty = $('#emptyState');
+  if (!ul || !empty) return;
+
+  ul.innerHTML = '';
+  if (!list.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  list.forEach((c, idx) => {
+    const li = document.createElement('li');
+    li.className = 'contact-item';
+    const actionButtons = state.isAdmin
+      ? `<button class="secondary small" data-action="edit" data-index="${idx}">Edit</button>
+         <button class="danger small" data-action="delete" data-index="${idx}">Delete</button>`
+      : '';
+    li.innerHTML = `
+      <div class="contact-meta">
+        <div class="contact-name">${c.name}</div>
+        <div class="contact-phone">${c.phone}</div>
+      </div>
+      <div class="contact-actions">
+        <button class="secondary small with-icon" data-action="call" data-index="${idx}"><span class="icon">📞</span><span>Call</span></button>
+        <button class="secondary small" data-action="copy" data-index="${idx}">Copy</button>
+        ${actionButtons}
+      </div>
+    `;
+    ul.appendChild(li);
+  });
+}
+
+function applyFilter(q) {
+  const query = (q || '').trim().toLowerCase();
+  if (!query) {
+    state.filtered = [...state.contacts];
+    renderList(state.filtered);
+    return;
+  }
+  state.filtered = state.contacts.filter((c) => {
+    const name = (c.name || '').toLowerCase();
+    const phone = normalizePhone(c.phone);
+    return name.includes(query) || phone.includes(query.replace(/\s/g, ''));
+  });
+  renderList(state.filtered);
+}
+
+function addContact(name, phone) {
+  const trimmedName = (name || '').trim();
+  const normPhone = normalizePhone(phone);
+  if (!trimmedName || !normPhone) {
+    showToast('Please enter valid name and phone');
+    return false;
+  }
+  const exists = state.contacts.some((c) => normalizePhone(c.phone) === normPhone);
+  if (exists) {
+    showToast('This number already exists');
+    return false;
+  }
+  state.contacts.unshift({ name: trimmedName, phone: normPhone });
+  saveContacts();
+  applyFilter($('#searchInput')?.value || '');
+  showToast('Contact saved');
+  return true;
+}
+
+function deleteContact(index) {
+  const item = state.filtered[index];
+  if (!item) return;
+  const originalIndex = state.contacts.findIndex((c) => c === item);
+  if (originalIndex >= 0) {
+    state.contacts.splice(originalIndex, 1);
+    saveContacts();
+    applyFilter($('#searchInput')?.value || '');
+    showToast('Deleted');
+  }
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Copied');
+  } catch (_) {
+    showToast('Copy failed');
+  }
+}
+
+function callNumber(phone) {
+  window.location.href = `tel:${normalizePhone(phone)}`;
+}
+
+function initVoice() {
+  const VoiceCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!VoiceCtor) return null;
+  const rec = new VoiceCtor();
+  rec.lang = 'en-IN';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  rec.continuous = false;
+  rec.onresult = (e) => {
+    const t = e.results?.[0]?.[0]?.transcript || '';
+    $('#searchInput').value = t;
+    applyFilter(t);
+    showToast('Voice captured');
+  };
+  rec.onerror = () => {
+    showToast('Voice error');
+  };
+  rec.onend = () => {
+    state.isListening = false;
+    $('#voiceBtn')?.classList.remove('active');
+  };
+  return rec;
+}
+
+function exportContacts() {
+  const data = JSON.stringify(state.contacts, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'contacts.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importContacts(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const list = JSON.parse(reader.result || '[]');
+      if (!Array.isArray(list)) throw new Error('Invalid file');
+      // Merge unique by phone
+      const existingPhones = new Set(state.contacts.map((c) => normalizePhone(c.phone)));
+      const merged = [...state.contacts];
+      list.forEach((c) => {
+        const n = (c?.name || '').toString();
+        const p = normalizePhone(c?.phone || '');
+        if (n && p && !existingPhones.has(p)) {
+          merged.push({ name: n, phone: p });
+          existingPhones.add(p);
+        }
+      });
+      state.contacts = merged;
+      saveContacts();
+      applyFilter($('#searchInput')?.value || '');
+      showToast('Imported');
+    } catch (_) {
+      showToast('Invalid contacts file');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function hydrateDemoIfEmpty() {
+  if (state.contacts.length) return;
+  state.contacts = [
+    { name: 'Rahul Sharma', phone: '+91 9876543210' },
+    { name: 'Anita Verma', phone: '+91 9898989898' },
+    { name: 'Suresh Kumar', phone: '011-23456789' },
+  ];
+  saveContacts();
+}
+
+function bindEvents() {
+  const form = $('#addContactForm');
+  const search = $('#searchInput');
+  const voice = $('#voiceBtn');
+  const clear = $('#clearSearch');
+  const openAdd = $('#openAdd');
+  const addCard = $('#addCard');
+  const closeAdd = $('#closeAdd');
+  const fabAdd = $('#fabAdd');
+  const importFile = $('#importFile');
+  const adminBtn = $('#adminBtn');
+  const adminModal = $('#adminModal');
+  const adminForm = $('#adminForm');
+  const adminPass = $('#adminPass');
+  const adminError = $('#adminError');
+  const adminSuccess = $('#adminSuccess');
+  const adminClose = $('#adminClose');
+  const adminCancel = $('#adminCancel');
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('#name').value;
+    const phone = $('#phone').value;
+    if (state.editIndex !== null) {
+      const item = state.filtered[state.editIndex];
+      if (item) {
+        const originalIndex = state.contacts.findIndex((c) => c === item);
+        if (originalIndex >= 0) {
+          state.contacts[originalIndex] = { name: name.trim(), phone: normalizePhone(phone) };
+          saveContacts();
+          applyFilter($('#searchInput')?.value || '');
+          showToast('Updated');
+        }
+      }
+      state.editIndex = null;
+      const submitBtn = document.querySelector('#addContactForm button[type="submit"]');
+      if (submitBtn) submitBtn.textContent = 'Save';
+      closeSheet();
+      return;
+    }
+    if (addContact(name, phone)) {
+      form.reset();
+      $('#name').focus();
+      closeSheet();
+    }
+  });
+
+  $('#resetForm').addEventListener('click', () => {
+    $('#name').focus();
+  });
+
+  search.addEventListener('input', (e) => applyFilter(e.target.value));
+  clear.addEventListener('click', () => { search.value = ''; applyFilter(''); search.focus(); });
+
+  $('#contactList').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const index = Number(btn.dataset.index);
+    const item = state.filtered[index];
+    if (!item) return;
+    if (action === 'delete') deleteContact(index);
+    if (action === 'copy') copyToClipboard(item.phone);
+    if (action === 'call') callNumber(item.phone);
+    if (action === 'edit') {
+      openSheet();
+      $('#name').value = item.name;
+      $('#phone').value = item.phone;
+      state.editIndex = index;
+      const submitBtn = document.querySelector('#addContactForm button[type="submit"]');
+      if (submitBtn) submitBtn.textContent = 'Update';
+    }
+  });
+
+  function openAdminModal() {
+    if (!adminModal) return;
+    adminModal.classList.remove('hidden');
+    adminError?.classList.add('hidden');
+    adminSuccess?.classList.add('hidden');
+    if (adminPass) adminPass.value = '';
+    setTimeout(() => adminPass?.focus(), 0);
+  }
+  function closeAdminModal() {
+    adminModal?.classList.add('hidden');
+  }
+  if (adminBtn) adminBtn.addEventListener('click', openAdminModal);
+  if (adminClose) adminClose.addEventListener('click', closeAdminModal);
+  if (adminCancel) adminCancel.addEventListener('click', closeAdminModal);
+  if (adminModal) {
+    adminModal.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal-backdrop')) closeAdminModal();
+    });
+  }
+  if (adminForm) {
+    adminForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (adminPass && adminPass.value === 'WWW852') {
+        state.isAdmin = true;
+        adminError?.classList.add('hidden');
+        adminSuccess?.classList.remove('hidden');
+        showToast('Admin mode ON');
+        renderList(state.filtered.length ? state.filtered : state.contacts);
+        // Update Admin button to Logout state
+        if (adminBtn) {
+          adminBtn.textContent = 'Logout';
+          adminBtn.onclick = () => {
+            state.isAdmin = false;
+            showToast('Logged out');
+            renderList(state.filtered.length ? state.filtered : state.contacts);
+            adminBtn.textContent = 'Admin';
+            adminBtn.onclick = openAdminModal;
+          };
+        }
+        setTimeout(closeAdminModal, 700);
+      } else {
+        state.isAdmin = false;
+        adminSuccess?.classList.add('hidden');
+        adminError?.classList.remove('hidden');
+        showToast('Wrong password');
+      }
+    });
+  }
+
+  // Ensure correct initial Admin button state
+  if (adminBtn) {
+    if (state.isAdmin) {
+      adminBtn.textContent = 'Logout';
+      adminBtn.onclick = () => {
+        state.isAdmin = false;
+        showToast('Logged out');
+        renderList(state.filtered.length ? state.filtered : state.contacts);
+        adminBtn.textContent = 'Admin';
+        adminBtn.onclick = openAdminModal;
+      };
+    } else {
+      adminBtn.textContent = 'Admin';
+      adminBtn.onclick = openAdminModal;
+    }
+  }
+  importFile.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) importContacts(file);
+    e.target.value = '';
+  });
+
+  function openSheet() {
+    addCard.classList.remove('hidden');
+    addCard.classList.add('open');
+    setTimeout(() => $('#name')?.focus(), 0);
+  }
+  function closeSheet() {
+    addCard.classList.remove('open');
+    // keep in DOM but hide visually on desktop
+    if (window.matchMedia('(min-width: 900px)').matches === false) {
+      // on mobile, keep as sheet; do not hide entirely
+    }
+  }
+  if (openAdd && addCard) openAdd.addEventListener('click', openSheet);
+  if (fabAdd && addCard) fabAdd.addEventListener('click', openSheet);
+  if (closeAdd && addCard) closeAdd.addEventListener('click', closeSheet);
+
+  state.recognition = initVoice();
+  if (voice) {
+    voice.addEventListener('click', () => {
+      if (!state.recognition) {
+        showToast('Voice not supported in this browser');
+        return;
+      }
+      if (state.isListening) {
+        state.recognition.stop();
+        return;
+      }
+      state.isListening = true;
+      voice.classList.add('active');
+      try { state.recognition.start(); } catch (_) {}
+    });
+  }
+}
+
+function init() {
+  loadContacts();
+  hydrateDemoIfEmpty();
+  applyFilter('');
+  bindEvents();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+
