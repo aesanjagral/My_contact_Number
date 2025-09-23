@@ -3,6 +3,9 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 const storageKey = 'smart_contacts_v1';
+const SUPABASE_URL = 'https://xrbbjwjpnlsmqucdhyvh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyYmJqd2pwbmxzbXF1Y2RoeXZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MjQ0ODcsImV4cCI6MjA3NDIwMDQ4N30.2SLrs93GSXTWbvO_dowgTcgjOY7E0EvT1-v75vyxZfE';
+const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const state = {
   contacts: [],
   filtered: [],
@@ -91,7 +94,7 @@ function applyFilter(q) {
   renderList(state.filtered);
 }
 
-function addContact(name, phone) {
+async function addContact(name, phone) {
   const trimmedName = (name || '').trim();
   const normPhone = normalizePhone(phone);
   if (!trimmedName || !normPhone) {
@@ -103,22 +106,46 @@ function addContact(name, phone) {
     showToast('This number already exists');
     return false;
   }
-  state.contacts.unshift({ name: trimmedName, phone: normPhone });
-  saveContacts();
-  applyFilter($('#searchInput')?.value || '');
-  showToast('Contact saved');
-  return true;
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('contacts').insert({ name: trimmedName, phone: normPhone });
+      if (error) { showToast('Save failed'); return false; }
+      await reloadFromBackend();
+      showToast('Contact saved');
+      return true;
+    } catch (_) {
+      showToast('Save failed');
+      return false;
+    }
+  } else {
+    state.contacts.unshift({ name: trimmedName, phone: normPhone });
+    saveContacts();
+    applyFilter($('#searchInput')?.value || '');
+    showToast('Contact saved');
+    return true;
+  }
 }
 
-function deleteContact(index) {
+async function deleteContact(index) {
   const item = state.filtered[index];
   if (!item) return;
   const originalIndex = state.contacts.findIndex((c) => c === item);
   if (originalIndex >= 0) {
-    state.contacts.splice(originalIndex, 1);
-    saveContacts();
-    applyFilter($('#searchInput')?.value || '');
-    showToast('Deleted');
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('contacts').delete().eq('phone', item.phone);
+        if (error) { showToast('Delete failed'); return; }
+        await reloadFromBackend();
+        showToast('Deleted');
+      } catch (_) {
+        showToast('Delete failed');
+      }
+    } else {
+      state.contacts.splice(originalIndex, 1);
+      saveContacts();
+      applyFilter($('#searchInput')?.value || '');
+      showToast('Deleted');
+    }
   }
 }
 
@@ -189,10 +216,20 @@ function importContacts(file) {
           existingPhones.add(p);
         }
       });
-      state.contacts = merged;
-      saveContacts();
-      applyFilter($('#searchInput')?.value || '');
-      showToast('Imported');
+      if (supabase) {
+        const rows = merged.filter((m) => !state.contacts.find((c) => c.phone === m.phone));
+        if (rows.length) {
+          supabase.from('contacts').insert(rows).then(() => reloadFromBackend());
+        } else {
+          reloadFromBackend();
+        }
+        showToast('Imported');
+      } else {
+        state.contacts = merged;
+        saveContacts();
+        applyFilter($('#searchInput')?.value || '');
+        showToast('Imported');
+      }
     } catch (_) {
       showToast('Invalid contacts file');
     }
@@ -229,7 +266,7 @@ function bindEvents() {
   const adminClose = $('#adminClose');
   const adminCancel = $('#adminCancel');
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = $('#name').value;
     const phone = $('#phone').value;
@@ -238,10 +275,24 @@ function bindEvents() {
       if (item) {
         const originalIndex = state.contacts.findIndex((c) => c === item);
         if (originalIndex >= 0) {
-          state.contacts[originalIndex] = { name: name.trim(), phone: normalizePhone(phone) };
-          saveContacts();
-          applyFilter($('#searchInput')?.value || '');
-          showToast('Updated');
+          const newName = name.trim();
+          const newPhone = normalizePhone(phone);
+          if (supabase) {
+            try {
+              const { error } = await supabase.from('contacts').update({ name: newName, phone: newPhone }).eq('phone', item.phone);
+              if (error) { showToast('Update failed'); return; }
+              await reloadFromBackend();
+              showToast('Updated');
+            } catch (_) {
+              showToast('Update failed');
+              return;
+            }
+          } else {
+            state.contacts[originalIndex] = { name: newName, phone: newPhone };
+            saveContacts();
+            applyFilter($('#searchInput')?.value || '');
+            showToast('Updated');
+          }
         }
       }
       state.editIndex = null;
@@ -250,7 +301,7 @@ function bindEvents() {
       closeSheet();
       return;
     }
-    if (addContact(name, phone)) {
+    if (await addContact(name, phone)) {
       form.reset();
       $('#name').focus();
       closeSheet();
@@ -389,10 +440,24 @@ function bindEvents() {
   }
 }
 
-function init() {
-  loadContacts();
-  hydrateDemoIfEmpty();
-  applyFilter('');
+async function reloadFromBackend() {
+  if (!supabase) { applyFilter($('#searchInput')?.value || ''); return; }
+  const { data, error } = await supabase.from('contacts').select('*').order('created_at', { ascending: false });
+  if (!error && Array.isArray(data)) {
+    state.contacts = data.map((r) => ({ name: r.name, phone: r.phone }));
+    try { localStorage.setItem(storageKey, JSON.stringify(state.contacts)); } catch (_) {}
+    applyFilter($('#searchInput')?.value || '');
+  }
+}
+
+async function init() {
+  if (supabase) {
+    await reloadFromBackend();
+  } else {
+    loadContacts();
+    hydrateDemoIfEmpty();
+    applyFilter('');
+  }
   bindEvents();
 }
 
