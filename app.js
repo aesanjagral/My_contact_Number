@@ -60,21 +60,63 @@ function renderList(list) {
   list.forEach((c, idx) => {
     const li = document.createElement('li');
     li.className = 'contact-item';
-    const actionButtons = state.isAdmin
-      ? `<button class="secondary small" data-action="edit" data-index="${idx}">Edit</button>
-         <button class="danger small" data-action="delete" data-index="${idx}">Delete</button>`
-      : '';
-    li.innerHTML = `
-      <div class="contact-meta">
-        <div class="contact-name">${c.name}</div>
-        <div class="contact-phone">${c.phone}</div>
-      </div>
-      <div class="contact-actions">
-        <button class="secondary small with-icon" data-action="call" data-index="${idx}"><span class="icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.62 10.79a15.052 15.052 0 006.59 6.59l2.2-2.2a1 1 0 01.97-.26 11.72 11.72 0 003.68.59 1 1 0 011 1V20a1 1 0 01-1 1C11.85 21 3 12.15 3 2a1 1 0 011-1h3.5a1 1 0 011 1 11.72 11.72 0 00.59 3.68 1 1 0 01-.26.97l-2.21 2.21z" fill="#ffffff"/></svg></span><span>Call</span></button>
-        <button class="secondary small" data-action="copy" data-index="${idx}">Copy</button>
-        ${actionButtons}
-      </div>
-    `;
+
+    const meta = document.createElement('div');
+    meta.className = 'contact-meta';
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'contact-name';
+    nameDiv.textContent = c?.name || '';
+    const phoneDiv = document.createElement('div');
+    phoneDiv.className = 'contact-phone';
+    phoneDiv.textContent = c?.phone || '';
+    meta.appendChild(nameDiv);
+    meta.appendChild(phoneDiv);
+
+    const actions = document.createElement('div');
+    actions.className = 'contact-actions';
+
+    const callBtn = document.createElement('button');
+    callBtn.className = 'secondary small with-icon';
+    callBtn.dataset.action = 'call';
+    callBtn.dataset.index = String(idx);
+    const callIcon = document.createElement('span');
+    callIcon.className = 'icon';
+    callIcon.setAttribute('aria-hidden', 'true');
+    // Static SVG only; no user data
+    callIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.62 10.79a15.052 15.052 0 006.59 6.59l2.2-2.2a1 1 0 01.97-.26 11.72 11.72 0 003.68.59 1 1 0 011 1V20a1 1 0 01-1 1C11.85 21 3 12.15 3 2a1 1 0 011-1h3.5a1 1 0 011 1 11.72 11.72 0 00.59 3.68 1 1 0 01-.26.97l-2.21 2.21z" fill="#ffffff"/></svg>';
+    const callLabel = document.createElement('span');
+    callLabel.textContent = 'Call';
+    callBtn.appendChild(callIcon);
+    callBtn.appendChild(callLabel);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'secondary small';
+    copyBtn.dataset.action = 'copy';
+    copyBtn.dataset.index = String(idx);
+    copyBtn.textContent = 'Copy';
+
+    actions.appendChild(callBtn);
+    actions.appendChild(copyBtn);
+
+    if (state.isAdmin) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'secondary small';
+      editBtn.dataset.action = 'edit';
+      editBtn.dataset.index = String(idx);
+      editBtn.textContent = 'Edit';
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'danger small';
+      delBtn.dataset.action = 'delete';
+      delBtn.dataset.index = String(idx);
+      delBtn.textContent = 'Delete';
+
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+    }
+
+    li.appendChild(meta);
+    li.appendChild(actions);
     ul.appendChild(li);
   });
 }
