@@ -16,6 +16,17 @@ const state = {
 };
 // Password removed as per request
 
+function simpleHash(str) {
+  // Simple hash function for basic obfuscation (not cryptographically secure)
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(16).padStart(32, '0').substring(0, 32);
+}
+
 function showToast(message) {
   const toast = $('#toast');
   if (!toast) return;
@@ -174,9 +185,14 @@ function initVoice() {
   rec.continuous = false;
   rec.onresult = (e) => {
     const t = e.results?.[0]?.[0]?.transcript || '';
-    $('#searchInput').value = t;
-    applyFilter(t);
-    showToast('Voice captured');
+    const searchInput = $('#searchInput');
+    if (searchInput) {
+      searchInput.value = t;
+      applyFilter(t);
+      showToast('Voice captured');
+    } else {
+      showToast('Search input not found');
+    }
   };
   rec.onerror = () => {
     showToast('Voice error');
@@ -219,7 +235,9 @@ function importContacts(file) {
         }
       });
       if (supabase) {
-        const rows = merged.filter((m) => !state.contacts.find((c) => c.phone === m.phone));
+        // Find only the newly imported contacts by comparing normalized phone numbers
+        const existingNormalizedPhones = new Set(state.contacts.map((c) => normalizePhone(c.phone)));
+        const rows = merged.filter((m) => !existingNormalizedPhones.has(normalizePhone(m.phone)));
         if (rows.length) {
           supabase.from('contacts').insert(rows).then(() => reloadFromBackend());
         } else {
@@ -359,7 +377,10 @@ function bindEvents() {
   if (adminForm) {
     adminForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (adminPass && adminPass.value === 'WWW852') {
+      // Use a simple hash check instead of plaintext password for better security
+      const correctPasswordHash = '00000000000000000000000066980002'; // Hash of admin password
+      const inputHash = adminPass && adminPass.value ? simpleHash(adminPass.value) : '';
+      if (adminPass && inputHash === correctPasswordHash) {
         state.isAdmin = true;
         adminError?.classList.add('hidden');
         adminSuccess?.classList.remove('hidden');
