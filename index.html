@@ -11,9 +11,13 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <div class="texture" aria-hidden="true"></div>
     <header class="app-header">
       <div class="container header-inner">
-        <h1 class="logo big-title">My Contack Number</h1>
+        <div class="brand-block">
+          <h1 class="logo big-title">My <span class="highlight">Contact</span> Number</h1>
+          <p class="tagline">Organize, search, and connect with a touch of sparkle.</p>
+        </div>
         <div class="search-box" role="search" style="margin-left:auto">
           <input id="searchInput" type="text" placeholder="Search by name or number" aria-label="Search contacts" />
           <button id="voiceBtn" class="icon-btn" aria-label="Voice search" title="Voice search">
